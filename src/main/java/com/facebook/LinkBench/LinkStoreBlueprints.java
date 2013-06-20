@@ -9,9 +9,6 @@ import com.tinkerpop.blueprints.Vertex;
 import com.tinkerpop.blueprints.impls.neo4j.Neo4jGraph;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -23,24 +20,22 @@ import java.util.Properties;
  * @author Stephen Mallette (http://stephen.genoprime.com)
  */
 public class LinkStoreBlueprints extends GraphStore {
-    private static Graph g = new Neo4jGraph("/tmp/neo4j-linkbench");
-
-    static {{
-        ((KeyIndexableGraph) g).createKeyIndex("iid", Vertex.class);
-    }}
+    private static GraphProvider graphProvider = new GraphProvider();
+    private Graph g;
 
     @Override
     public void initialize(Properties p, Phase currentPhase, int threadId) throws IOException, Exception {
+        g = graphProvider.getGraph();
     }
 
     @Override
     public void close() {
-
+        graphProvider.shutdown();
     }
 
     @Override
     public void clearErrors(int threadID) {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     @Override
@@ -166,7 +161,7 @@ public class LinkStoreBlueprints extends GraphStore {
                         Byte.parseByte(e.getProperty("visibility").toString()),
                         e.getProperty("data").toString().getBytes(),
                         Integer.parseInt(e.getProperty("version").toString()),
-                        Integer.parseInt(e.getProperty("time").toString()));
+                        Long.parseLong(e.getProperty("time").toString()));
             }
         }
 
@@ -178,14 +173,19 @@ public class LinkStoreBlueprints extends GraphStore {
         // Blueprints doesn't care about the dbid
         final Vertex v1 = findVertex(id1);
 
+        if (v1 == null) {
+            return null;
+        }
+
         final List<Link> links  = new ArrayList<Link>();
         final Iterable<Edge> edges = v1.getEdges(Direction.OUT, String.valueOf(link_type));
+
         for (Edge e : edges) {
-            links.add(new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getId().toString()),
+            links.add(new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getProperty("iid").toString()),
                     Byte.parseByte(e.getProperty("visibility").toString()),
-                    e.getProperty("data").toString().getBytes(),
+                    (byte[]) e.getProperty("data"),
                     Integer.parseInt(e.getProperty("version").toString()),
-                    Integer.parseInt(e.getProperty("time").toString())));
+                    Long.parseLong(e.getProperty("time").toString())));
         }
 
         return links.toArray(new Link[0]);
@@ -196,17 +196,21 @@ public class LinkStoreBlueprints extends GraphStore {
         // Blueprints doesn't care about the dbid
         final Vertex v1 = findVertex(id1);
 
+        if (v1 == null) {
+            return null;
+        }
+
         int skipped = 0;
         int matching = 0;
 
         final List<Link> links  = new ArrayList<Link>();
         final Iterable<Edge> edges = v1.getEdges(Direction.OUT, String.valueOf(link_type));
         for (Edge e : edges) {
-            final Link l = new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getId().toString()),
+            final Link l = new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getProperty("iid").toString()),
                     Byte.parseByte(e.getProperty("visibility").toString()),
-                    e.getProperty("data").toString().getBytes(),
+                    (byte[]) e.getProperty("data"),
                     Integer.parseInt(e.getProperty("version").toString()),
-                    Integer.parseInt(e.getProperty("time").toString()));
+                    Long.parseLong(e.getProperty("time").toString()));
 
             if (l.visibility == VISIBILITY_DEFAULT &&
                     l.time >= minTimestamp && l.time <= maxTimestamp) {
@@ -290,7 +294,7 @@ public class LinkStoreBlueprints extends GraphStore {
                 Integer.parseInt(v.getProperty("type").toString()),
                 Long.parseLong(v.getProperty("version").toString()),
                 Integer.parseInt(v.getProperty("time").toString()),
-                v.getProperty("data").toString().getBytes());
+                (byte[]) v.getProperty("data"));
 
         return n.clone();
     }
@@ -351,7 +355,7 @@ public class LinkStoreBlueprints extends GraphStore {
     }
 
     private static void updateVertexProperties(final Vertex v, final Node node) {
-        v.setProperty("data", stringLiteral(node.data));
+        v.setProperty("data", node.data);
         v.setProperty("time", node.time);
         v.setProperty("type", node.type);
         v.setProperty("version", node.version);
@@ -360,77 +364,40 @@ public class LinkStoreBlueprints extends GraphStore {
 
     private static void updateEdgeProperties(final Edge e, final Link a) {
         e.setProperty("visibility", a.visibility);
-        e.setProperty("data", stringLiteral(a.data));
+        e.setProperty("data", a.data);
         e.setProperty("time", a.time);
         e.setProperty("version", a.version);
     }
 
-    /**
-     * Convert a byte array into a valid mysql string literal, assuming that
-     * it will be inserted into a column with latin-1 encoding.
-     * Based on information at
-     * http://dev.mysql.com/doc/refman/5.1/en/string-literals.html
-     * @param arr
-     * @return
-     */
-    private static String stringLiteral(byte arr[]) {
-        CharBuffer cb = Charset.forName("ISO-8859-1").decode(ByteBuffer.wrap(arr));
-        StringBuilder sb = new StringBuilder();
-        sb.append('\'');
-        for (int i = 0; i < cb.length(); i++) {
-            char c = cb.get(i);
-            switch (c) {
-                case '\'':
-                    sb.append("\\'");
-                    break;
-                case '\\':
-                    sb.append("\\\\");
-                    break;
-                case '\0':
-                    sb.append("\\0");
-                    break;
-                case '\b':
-                    sb.append("\\b");
-                    break;
-                case '\n':
-                    sb.append("\\n");
-                    break;
-                case '\r':
-                    sb.append("\\r");
-                    break;
-                case '\t':
-                    sb.append("\\t");
-                    break;
-                default:
-                    if (Character.getNumericValue(c) < 0) {
-                        // Fall back on hex string for values not defined in latin-1
-                        return hexStringLiteral(arr);
-                    } else {
-                        sb.append(c);
-                    }
+    static class GraphProvider {
+
+        private static Graph g = null;
+
+        /**
+         * Basically keeps track of graph instances grabbed/killed.  When the connection count drops to zero then
+         * the graph gets shutdown and nulled out. This is an admitted hack, but at least stays within the confines
+         * of what LinkBench framework currently is without introducing a big complex pull request with tons of
+         * refactoring.
+         */
+        private int openedConnections;
+
+        public synchronized Graph getGraph() {
+            if (g == null) {
+                g = new Neo4jGraph("/tmp/neo4j-linkbench");
+                ((KeyIndexableGraph) g).createKeyIndex("iid", Vertex.class);
+            }
+
+            openedConnections++;
+
+            return g;
+        }
+
+        public synchronized void shutdown() {
+            openedConnections--;
+            if (openedConnections == 0) {
+                g.shutdown();
+                g = null;
             }
         }
-        sb.append('\'');
-        return sb.toString();
-    }
-
-    /**
-     * Create a mysql hex string literal from array:
-     * E.g. [0xf, bc, 4c, 4] converts to x'0fbc4c03'
-     * @param arr
-     * @return the mysql hex literal including quotes
-     */
-    private static String hexStringLiteral(byte[] arr) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("x'");
-        for (int i = 0; i < arr.length; i++) {
-            byte b = arr[i];
-            int lo = b & 0xf;
-            int hi = (b >> 4) & 0xf;
-            sb.append(Character.forDigit(hi, 16));
-            sb.append(Character.forDigit(lo, 16));
-        }
-        sb.append("'");
-        return sb.toString();
     }
 }
