@@ -129,7 +129,7 @@ public class LinkStoreBlueprints extends GraphStore {
 
             if (!noinverse) {
                 final Iterable<Edge> inverseEdges = v2.getEdges(Direction.OUT, String.valueOf(a.link_type));
-                for (Edge e : edges) {
+                for (Edge e : inverseEdges) {
                     if (e.getVertex(Direction.IN).equals(v1)) {
                         updateEdgeProperties(e, a);
                     }
