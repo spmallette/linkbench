@@ -7,6 +7,7 @@ import com.tinkerpop.blueprints.KeyIndexableGraph;
 import com.tinkerpop.blueprints.TransactionalGraph;
 import com.tinkerpop.blueprints.Vertex;
 import com.tinkerpop.blueprints.impls.neo4j.Neo4jGraph;
+import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -20,6 +21,14 @@ import java.util.Properties;
  * @author Stephen Mallette (http://stephen.genoprime.com)
  */
 public class LinkStoreBlueprints extends GraphStore {
+
+    private static String PROPERTY_DATA = "data";
+    private static String PROPERTY_IID = "iid";
+    private static String PROPERTY_TIME = "time";
+    private static String PROPERTY_TYPE = "type";
+    private static String PROPERTY_VERSION = "version";
+    private static String PROPERTY_VISIBILITY = "visibility";
+
     private static GraphProvider graphProvider = new GraphProvider();
     private Graph g;
 
@@ -82,7 +91,7 @@ public class LinkStoreBlueprints extends GraphStore {
                     if (expunge) {
                         e.remove();
                     } else {
-                        e.setProperty("visibility", VISIBILITY_HIDDEN);
+                        e.setProperty(PROPERTY_VISIBILITY, VISIBILITY_HIDDEN);
                     }
                 }
             }
@@ -94,7 +103,7 @@ public class LinkStoreBlueprints extends GraphStore {
                         if (expunge) {
                             e.remove();
                         } else {
-                            e.setProperty("visibility", VISIBILITY_HIDDEN);
+                            e.setProperty(PROPERTY_VISIBILITY, VISIBILITY_HIDDEN);
                         }
                     }
                 }
@@ -156,12 +165,15 @@ public class LinkStoreBlueprints extends GraphStore {
 
         final Iterable<Edge> edges = v1.getEdges(Direction.OUT, String.valueOf(link_type));
         for (Edge e : edges) {
-            if (e.getVertex(Direction.IN).equals(v2)) {
-                return new Link(id1, link_type, id2,
-                        Byte.parseByte(e.getProperty("visibility").toString()),
-                        e.getProperty("data").toString().getBytes(),
-                        Integer.parseInt(e.getProperty("version").toString()),
-                        Long.parseLong(e.getProperty("time").toString()));
+            Vertex v;
+            try {
+                v = e.getVertex(Direction.IN);
+            } catch (Exception ex) {
+                v = null;
+            }
+
+            if (v != null && v.equals(v2)) {
+                return createLink(id1, link_type, id2, e);
             }
         }
 
@@ -181,11 +193,10 @@ public class LinkStoreBlueprints extends GraphStore {
         final Iterable<Edge> edges = v1.getEdges(Direction.OUT, String.valueOf(link_type));
 
         for (Edge e : edges) {
-            links.add(new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getProperty("iid").toString()),
-                    Byte.parseByte(e.getProperty("visibility").toString()),
-                    (byte[]) e.getProperty("data"),
-                    Integer.parseInt(e.getProperty("version").toString()),
-                    Long.parseLong(e.getProperty("time").toString())));
+            final Link l = createLink(id1, link_type, e);
+            if (l != null) {
+                links.add(createLink(id1, link_type, e));
+            }
         }
 
         return links.toArray(new Link[0]);
@@ -206,13 +217,9 @@ public class LinkStoreBlueprints extends GraphStore {
         final List<Link> links  = new ArrayList<Link>();
         final Iterable<Edge> edges = v1.getEdges(Direction.OUT, String.valueOf(link_type));
         for (Edge e : edges) {
-            final Link l = new Link(id1, link_type, Long.parseLong(e.getVertex(Direction.IN).getProperty("iid").toString()),
-                    Byte.parseByte(e.getProperty("visibility").toString()),
-                    (byte[]) e.getProperty("data"),
-                    Integer.parseInt(e.getProperty("version").toString()),
-                    Long.parseLong(e.getProperty("time").toString()));
+            final Link l = createLink(id1, link_type, e);
 
-            if (l.visibility == VISIBILITY_DEFAULT &&
+            if (l != null && l.visibility == VISIBILITY_DEFAULT &&
                     l.time >= minTimestamp && l.time <= maxTimestamp) {
                 if (skipped < offset) {
                     skipped++;
@@ -291,10 +298,10 @@ public class LinkStoreBlueprints extends GraphStore {
         }
 
         final Node n = new Node(id,
-                Integer.parseInt(v.getProperty("type").toString()),
-                Long.parseLong(v.getProperty("version").toString()),
-                Integer.parseInt(v.getProperty("time").toString()),
-                (byte[]) v.getProperty("data"));
+                Integer.parseInt(v.getProperty(PROPERTY_TYPE).toString()),
+                Long.parseLong(v.getProperty(PROPERTY_VERSION).toString()),
+                Integer.parseInt(v.getProperty(PROPERTY_TIME).toString()),
+                (byte[]) v.getProperty(PROPERTY_DATA));
 
         return n.clone();
     }
@@ -335,7 +342,7 @@ public class LinkStoreBlueprints extends GraphStore {
     }
 
     private Vertex findVertex(long id) throws Exception {
-        final Iterator<Vertex> itty = g.getVertices("iid", id).iterator();
+        final Iterator<Vertex> itty = g.getVertices(PROPERTY_IID, id).iterator();
         Vertex v = null;
         if (itty.hasNext()) {
             v = itty.next();
@@ -355,22 +362,46 @@ public class LinkStoreBlueprints extends GraphStore {
     }
 
     private static void updateVertexProperties(final Vertex v, final Node node) {
-        v.setProperty("data", node.data);
-        v.setProperty("time", node.time);
-        v.setProperty("type", node.type);
-        v.setProperty("version", node.version);
-        v.setProperty("iid", node.id);
+        v.setProperty(PROPERTY_DATA, node.data);
+        v.setProperty(PROPERTY_TIME, node.time);
+        v.setProperty(PROPERTY_TYPE, node.type);
+        v.setProperty(PROPERTY_VERSION, node.version);
+        v.setProperty(PROPERTY_IID, node.id);
     }
 
     private static void updateEdgeProperties(final Edge e, final Link a) {
-        e.setProperty("visibility", a.visibility);
-        e.setProperty("data", a.data);
-        e.setProperty("time", a.time);
-        e.setProperty("version", a.version);
+        e.setProperty(PROPERTY_VISIBILITY, a.visibility);
+        e.setProperty(PROPERTY_DATA, a.data);
+        e.setProperty(PROPERTY_TIME, a.time);
+        e.setProperty(PROPERTY_VERSION, a.version);
+    }
+
+    private static Link createLink(final long id1, final long link_type, final Edge e) {
+        try {
+            // defensively check for the vertex in case it got blown away in a delete.  need try-catch as some
+            // graph implementations will throw an exception here if the vertex is no longer present
+            final Vertex v = e.getVertex(Direction.IN);
+            if (v == null) {
+                return null;
+            }
+
+            return createLink(id1, Long.parseLong(v.getProperty(PROPERTY_IID).toString()), link_type, e);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private static Link createLink(final long id1, final long id2, final long link_type, final Edge e) {
+        return new Link(id1, link_type, id2,
+                Byte.parseByte(e.getProperty(PROPERTY_VISIBILITY).toString()),
+                (byte[]) e.getProperty(PROPERTY_DATA),
+                Integer.parseInt(e.getProperty(PROPERTY_VERSION).toString()),
+                Long.parseLong(e.getProperty(PROPERTY_TIME).toString()));
     }
 
     static class GraphProvider {
 
+        private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
         private static Graph g = null;
 
         /**
@@ -383,19 +414,38 @@ public class LinkStoreBlueprints extends GraphStore {
 
         public synchronized Graph getGraph() {
             if (g == null) {
-                g = new Neo4jGraph("/tmp/neo4j-linkbench");
-                ((KeyIndexableGraph) g).createKeyIndex("iid", Vertex.class);
+                final String path = "/tmp/neo4j-linkbench";
+                g = new Neo4jGraph(path);
+
+                if (!(g instanceof KeyIndexableGraph)) {
+                    throw new RuntimeException(String.format("Graph must be of type %s", KeyIndexableGraph.class.getCanonicalName()));
+                }
+
+                final KeyIndexableGraph kg = ((KeyIndexableGraph) g);
+                if (!kg.getIndexedKeys(Vertex.class).contains(PROPERTY_IID)) {
+                    kg.createKeyIndex(PROPERTY_IID, Vertex.class);
+                }
+
+                logger.info(String.format("Initialized graph - %s", g));
             }
 
             openedConnections++;
+
+            logger.info(String.format("OPENED - Graph 'connection' count = %s", openedConnections));
 
             return g;
         }
 
         public synchronized void shutdown() {
             openedConnections--;
+
+            logger.info(String.format("CLOSED - Graph 'connection' count = %s", openedConnections));
+
             if (openedConnections == 0) {
                 g.shutdown();
+
+                logger.info(String.format("Graph shutdown - %s", g));
+
                 g = null;
             }
         }
