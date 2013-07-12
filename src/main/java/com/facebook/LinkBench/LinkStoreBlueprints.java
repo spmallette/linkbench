@@ -1,13 +1,11 @@
 package com.facebook.LinkBench;
 
+import com.facebook.LinkBench.blueprints.GraphProvider;
 import com.tinkerpop.blueprints.Direction;
 import com.tinkerpop.blueprints.Edge;
 import com.tinkerpop.blueprints.Graph;
-import com.tinkerpop.blueprints.KeyIndexableGraph;
 import com.tinkerpop.blueprints.TransactionalGraph;
 import com.tinkerpop.blueprints.Vertex;
-import com.tinkerpop.blueprints.impls.neo4j.Neo4jGraph;
-import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -23,14 +21,18 @@ import java.util.Properties;
 public class LinkStoreBlueprints extends GraphStore {
 
     private static String PROPERTY_DATA = "data";
-    private static String PROPERTY_IID = "iid";
+    public static String PROPERTY_IID = "iid";
     private static String PROPERTY_TIME = "time";
     private static String PROPERTY_TYPE = "type";
     private static String PROPERTY_VERSION = "version";
     private static String PROPERTY_VISIBILITY = "visibility";
 
-    private static GraphProvider graphProvider = new GraphProvider();
+    private GraphProvider graphProvider;
     private Graph g;
+
+    public LinkStoreBlueprints(GraphProvider graphProvider) {
+        this.graphProvider = graphProvider;
+    }
 
     @Override
     public void initialize(Properties p, Phase currentPhase, int threadId) throws IOException, Exception {
@@ -399,55 +401,4 @@ public class LinkStoreBlueprints extends GraphStore {
                 Long.parseLong(e.getProperty(PROPERTY_TIME).toString()));
     }
 
-    static class GraphProvider {
-
-        private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
-        private static Graph g = null;
-
-        /**
-         * Basically keeps track of graph instances grabbed/killed.  When the connection count drops to zero then
-         * the graph gets shutdown and nulled out. This is an admitted hack, but at least stays within the confines
-         * of what LinkBench framework currently is without introducing a big complex pull request with tons of
-         * refactoring.
-         */
-        private int openedConnections;
-
-        public synchronized Graph getGraph() {
-            if (g == null) {
-                final String path = "/tmp/neo4j-linkbench";
-                g = new Neo4jGraph(path);
-
-                if (!(g instanceof KeyIndexableGraph)) {
-                    throw new RuntimeException(String.format("Graph must be of type %s", KeyIndexableGraph.class.getCanonicalName()));
-                }
-
-                final KeyIndexableGraph kg = ((KeyIndexableGraph) g);
-                if (!kg.getIndexedKeys(Vertex.class).contains(PROPERTY_IID)) {
-                    kg.createKeyIndex(PROPERTY_IID, Vertex.class);
-                }
-
-                logger.info(String.format("Initialized graph - %s", g));
-            }
-
-            openedConnections++;
-
-            logger.info(String.format("OPENED - Graph 'connection' count = %s", openedConnections));
-
-            return g;
-        }
-
-        public synchronized void shutdown() {
-            openedConnections--;
-
-            logger.info(String.format("CLOSED - Graph 'connection' count = %s", openedConnections));
-
-            if (openedConnections == 0) {
-                g.shutdown();
-
-                logger.info(String.format("Graph shutdown - %s", g));
-
-                g = null;
-            }
-        }
-    }
 }
