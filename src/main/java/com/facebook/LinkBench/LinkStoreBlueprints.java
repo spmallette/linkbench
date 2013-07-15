@@ -3,10 +3,13 @@ package com.facebook.LinkBench;
 import com.tinkerpop.blueprints.Direction;
 import com.tinkerpop.blueprints.Edge;
 import com.tinkerpop.blueprints.Graph;
+import com.tinkerpop.blueprints.GraphFactory;
 import com.tinkerpop.blueprints.KeyIndexableGraph;
 import com.tinkerpop.blueprints.TransactionalGraph;
 import com.tinkerpop.blueprints.Vertex;
-import com.tinkerpop.blueprints.impls.neo4j.Neo4jGraph;
+import org.apache.commons.configuration.Configuration;
+import org.apache.commons.configuration.MapConfiguration;
+import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
@@ -34,7 +37,7 @@ public class LinkStoreBlueprints extends GraphStore {
 
     @Override
     public void initialize(Properties p, Phase currentPhase, int threadId) throws IOException, Exception {
-        g = graphProvider.getGraph();
+        g = graphProvider.getGraph(p);
     }
 
     @Override
@@ -412,10 +415,10 @@ public class LinkStoreBlueprints extends GraphStore {
          */
         private int openedConnections;
 
-        public synchronized Graph getGraph() {
+        public synchronized Graph getGraph(final Properties p) {
             if (g == null) {
-                final String path = "/tmp/neo4j-linkbench";
-                g = new Neo4jGraph(path);
+                final Configuration blueprintsConfiguration = new MapConfiguration(p).subset("tinkerpop");
+                g = GraphFactory.open(blueprintsConfiguration);
 
                 if (!(g instanceof KeyIndexableGraph)) {
                     throw new RuntimeException(String.format("Graph must be of type %s", KeyIndexableGraph.class.getCanonicalName()));
