@@ -106,6 +106,12 @@
             <artifactId>blueprints-core</artifactId>
             <version>${version.blueprints}</version>
         </dependency>
+        <dependency>
+            <groupId>com.tinkerpop.blueprints</groupId>
+            <artifactId>blueprints-orient-graph</artifactId>
+            <version>${version.blueprints}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <profiles>
