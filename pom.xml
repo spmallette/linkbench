@@ -43,6 +43,11 @@
         <tag>HEAD</tag>
     </scm>
 
+    <properties>
+        <!-- HBase is stuck on api:1.4.3 -->
+        <version.slf4j>1.4.3</version.slf4j>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>commons-cli</groupId>
@@ -88,7 +93,7 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
-            <version>1.5.8</version>
+            <version>${version.slf4j}</version>
         </dependency>
         <dependency>
             <groupId>mysql</groupId>
