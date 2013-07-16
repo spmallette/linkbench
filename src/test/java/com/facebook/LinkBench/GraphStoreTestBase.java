@@ -86,9 +86,14 @@ public abstract class GraphStoreTestBase extends TestCase {
   protected Properties basicProps() {
     Properties props = new Properties();
     props.setProperty(Config.DBID, testDB);
+    addCustomProps(props);
     return props;
   }
 
+  /**
+   * Override to add your own custom properties.
+   */
+  protected void addCustomProps(Properties props){}
 
   public static void fillLoadProps(Properties props, long startId, long idCount,
       int linksPerId) {
