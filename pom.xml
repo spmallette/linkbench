@@ -45,8 +45,9 @@
 
     <properties>
         <version.blueprints>2.4.0-SNAPSHOT</version.blueprints>
-        <!-- HBase is stuck on api:1.4.3 -->
-        <version.slf4j>1.4.3</version.slf4j>
+        <!-- Force slf4j update even though HBase is stuck on api:1.4.3,
+         because neo4j depends on an implementation see https://github.com/neo4j/neo4j/issues/973 -->
+        <version.slf4j>1.7.5</version.slf4j>
     </properties>
 
     <dependencies>
@@ -105,6 +106,12 @@
             <groupId>com.tinkerpop.blueprints</groupId>
             <artifactId>blueprints-core</artifactId>
             <version>${version.blueprints}</version>
+        </dependency>
+        <dependency>
+          <groupId>com.tinkerpop.blueprints</groupId>
+          <artifactId>blueprints-neo4j-graph</artifactId>
+          <version>${version.blueprints}</version>
+          <scope>test</scope>
         </dependency>
     </dependencies>
 
