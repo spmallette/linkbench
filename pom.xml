@@ -44,7 +44,7 @@
     </scm>
 
     <properties>
-        <version.blueprints>2.4.0-SNAPSHOT</version.blueprints>
+        <version.blueprints>2.4.0</version.blueprints>
         <!-- HBase is stuck on api:1.4.3 -->
         <version.slf4j>1.4.3</version.slf4j>
     </properties>
